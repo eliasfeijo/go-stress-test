@@ -1,19 +1,12 @@
+name: Build Release
+
 on:
   release:
     types: [created]
 
-permissions:
-    contents: write
-    packages: write
-
 jobs:
-  release-linux-amd64:
-    name: release linux/amd64
+  release-linux:
+    name: Release Linux
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    - uses: wangyoucao577/go-release-action@v1
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        goos: linux
-        goarch: amd64
+      - run: echo "Hello Release"
