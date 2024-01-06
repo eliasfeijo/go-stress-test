@@ -22,9 +22,9 @@ type StressReport struct {
 	// The average time taken to complete all requests
 	AverageTime float64
 	// The fastest time taken to complete a request
-	FastestTime float64
+	FastestTime int64
 	// The slowest time taken to complete a request
-	SlowestTime float64
+	SlowestTime int64
 	// The percentage of requests that succeeded
 	PercentageSucceeded float64
 	// The percentage of requests that failed
@@ -74,6 +74,8 @@ type Stress struct {
 	Verbose bool
 	// The report
 	Report *StressReport
+	// Mutex
+	mu sync.Mutex
 }
 
 // NewStress creates a new stress test
@@ -87,6 +89,7 @@ func NewStress(url string, method string, concurrency int, requests int, timeout
 		Timeout:     timeout,
 		Verbose:     verbose,
 		Report:      report,
+		mu:          sync.Mutex{},
 	}
 }
 
@@ -99,44 +102,66 @@ func (s *Stress) Run() error {
 
 // PrintReport prints the report
 func (s *Stress) PrintReport() {
-	fmt.Println("Report:")
+	fmt.Println("--- Report ---")
 	fmt.Println("Requests:", s.Report.Requests)
 	fmt.Println("Failed:", s.Report.Failed)
 	fmt.Println("Succeeded:", s.Report.Succeeded)
 	fmt.Println("TimedOut:", s.Report.TimedOut)
-	fmt.Println("TotalTime:", s.Report.TotalTime)
-	fmt.Println("AverageTime:", s.Report.AverageTime)
-	fmt.Println("FastestTime:", s.Report.FastestTime)
-	fmt.Println("SlowestTime:", s.Report.SlowestTime)
-	fmt.Println("PercentageSucceeded:", s.Report.PercentageSucceeded)
-	fmt.Println("PercentageFailed:", s.Report.PercentageFailed)
-	fmt.Println("PercentageTimedOut:", s.Report.PercentageTimedOut)
+	fmt.Println("TotalTime:", s.Report.TotalTime, "ms")
+	fmt.Println("AverageTime:", s.Report.AverageTime, "ms")
+	fmt.Println("FastestTime:", s.Report.FastestTime, "ms")
+	fmt.Println("SlowestTime:", s.Report.SlowestTime, "ms")
+	fmt.Println("PercentageSucceeded:", s.Report.PercentageSucceeded, "%")
+	fmt.Println("PercentageFailed:", s.Report.PercentageFailed, "%")
+	fmt.Println("PercentageTimedOut:", s.Report.PercentageTimedOut, "%")
 }
 
 // Run the stress test
 func (s *Stress) run() {
+	start := time.Now()
+
 	// Create a wait group to wait for all requests to finish
 	var wg sync.WaitGroup
 
 	// Start the specified number of concurrent goroutines
 	for i := 0; i < s.Concurrency; i++ {
 		wg.Add(1)
+		i := i
+
 		go func() {
 			defer wg.Done()
-
 			// Run the specified number of requests
 			for j := 0; j < s.Requests/s.Concurrency; j++ {
-				s.runRequest()
+				s.runRequest(i + 1)
 			}
 		}()
 	}
 
 	// Wait for all requests to finish
 	wg.Wait()
+
+	// Time elapsed in seconds
+	elapsed := time.Since(start).Milliseconds()
+
+	// Set the total time taken
+	s.Report.TotalTime = float64(elapsed)
+
+	// Calculate AverageTime
+	s.Report.AverageTime = s.Report.TotalTime / float64(s.Report.Requests)
+
+	// Calculate PercentageSucceeded
+	s.Report.PercentageSucceeded = float64(s.Report.Succeeded) / float64(s.Report.Requests) * 100
+
+	// Calculate PercentageFailed
+	s.Report.PercentageFailed = float64(s.Report.Failed) / float64(s.Report.Requests) * 100
+
+	// Calculate PercentageTimedOut
+	s.Report.PercentageTimedOut = float64(s.Report.TimedOut) / float64(s.Report.Requests) * 100
+
 	fmt.Println("Finished stress test")
 }
 
-func (s *Stress) runRequest() {
+func (s *Stress) runRequest(concurrencyGroup int) {
 	start := time.Now()
 
 	// Create a new HTTP client
@@ -151,31 +176,35 @@ func (s *Stress) runRequest() {
 	}
 
 	// Get the response
-	_, err = client.Do(req)
-	if err != nil {
-		s.Report.Failed++
-		return
-	}
+	res, err := client.Do(req)
 
-	elapsed := time.Since(start).Seconds()
+	elapsed := time.Since(start).Milliseconds()
 
 	// If Verbose, print the request
 	if s.Verbose {
-		fmt.Print(fmt.Sprint(s.Report.Requests+1) + " " + s.Method + " " + s.URL)
-		fmt.Println(" Time:", elapsed)
+		fmt.Print(fmt.Sprint(concurrencyGroup) + " | " + fmt.Sprint(s.Report.Requests+1) + " " + s.Method + " " + s.URL)
+		fmt.Println(" Time:", elapsed, "ms, Status:", res.StatusCode)
 	}
 
-	s.Report.Succeeded++
-	s.updateReport(elapsed)
+	s.updateReport(res, err, elapsed)
 }
 
 // Update the report
-func (s *Stress) updateReport(elapsed float64) {
+func (s *Stress) updateReport(res *http.Response, err error, elapsed int64) {
+	// Lock the mutex
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err != nil || res.StatusCode != 200 {
+		// Increment Failed if there was an error or the status code is not 200
+		s.Report.Failed++
+	} else {
+		// Increment Succeeded
+		s.Report.Succeeded++
+	}
+
 	// Increment Requests
 	s.Report.Requests++
-
-	// Add the time taken to TotalTime
-	s.Report.TotalTime += elapsed
 
 	// If the time taken is faster than FastestTime, set FastestTime
 	if elapsed < s.Report.FastestTime || s.Report.FastestTime == 0 {
@@ -186,16 +215,4 @@ func (s *Stress) updateReport(elapsed float64) {
 	if elapsed > s.Report.SlowestTime {
 		s.Report.SlowestTime = elapsed
 	}
-
-	// Calculate AverageTime
-	s.Report.AverageTime = s.Report.TotalTime / float64(s.Report.Requests)
-
-	// Calculate PercentageSucceeded
-	s.Report.PercentageSucceeded = float64(s.Report.Succeeded) / float64(s.Report.Requests) * 100
-
-	// Calculate PercentageFailed
-	s.Report.PercentageFailed = float64(s.Report.Failed) / float64(s.Report.Requests) * 100
-
-	// Calculate PercentageTimedOut
-	s.Report.PercentageTimedOut = float64(s.Report.TimedOut) / float64(s.Report.Requests) * 100
 }
