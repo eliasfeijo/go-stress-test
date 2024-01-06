@@ -151,6 +151,18 @@ func (s *Stress) run() {
 		}()
 	}
 
+	// If the number of requests is not divisible by the number of concurrent requests
+	// Run the remaining requests
+	for i := 0; i < s.Requests%s.Concurrency; i++ {
+		wg.Add(1)
+		i := i
+
+		go func() {
+			defer wg.Done()
+			s.runRequest(i + 1)
+		}()
+	}
+
 	// Wait for all requests to finish
 	wg.Wait()
 
