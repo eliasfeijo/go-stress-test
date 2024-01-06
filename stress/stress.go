@@ -3,9 +3,12 @@ package stress
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
+
+type MapStatusRequests map[int]int
 
 // StressReport struct
 type StressReport struct {
@@ -31,6 +34,8 @@ type StressReport struct {
 	PercentageFailed float64
 	// The percentage of requests that timed out
 	PercentageTimedOut float64
+	// The status code of the requests
+	StatusRequests MapStatusRequests
 }
 
 // NewStressReport creates a new stress report
@@ -47,6 +52,7 @@ func NewStressReport() *StressReport {
 		PercentageSucceeded: 0,
 		PercentageFailed:    0,
 		PercentageTimedOut:  0,
+		StatusRequests:      make(MapStatusRequests),
 	}
 }
 
@@ -114,6 +120,10 @@ func (s *Stress) PrintReport() {
 	fmt.Println("PercentageSucceeded:", s.Report.PercentageSucceeded, "%")
 	fmt.Println("PercentageFailed:", s.Report.PercentageFailed, "%")
 	fmt.Println("PercentageTimedOut:", s.Report.PercentageTimedOut, "%")
+	fmt.Println("--- Requests per status code ---")
+	for status, requests := range s.Report.StatusRequests {
+		fmt.Println("Status", fmt.Sprint(status)+":", requests, "requests")
+	}
 }
 
 // Run the stress test
@@ -195,12 +205,34 @@ func (s *Stress) updateReport(res *http.Response, err error, elapsed int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err != nil || res.StatusCode != 200 {
-		// Increment Failed if there was an error or the status code is not 200
+	if err != nil {
+		fmt.Println(err)
+		// Error making the request
+		if strings.Contains(err.Error(), "connection refused") {
+			// If the error is a connection refused, panic
+			panic(err)
+		}
+		// If the error is a timeout, increment TimedOut
+		if err.Error() == http.ErrHandlerTimeout.Error() {
+			s.Report.TimedOut++
+		}
+		// Increment Failed
 		s.Report.Failed++
 	} else {
-		// Increment Succeeded
-		s.Report.Succeeded++
+		// No error making the request
+		if res.StatusCode != 200 {
+			// If the status code is not 200, increment Failed
+			s.Report.Failed++
+		} else {
+			// If the status code is 200, increment Succeeded
+			s.Report.Succeeded++
+		}
+		// If the status code is not in StatusRequests, add it
+		if _, ok := s.Report.StatusRequests[res.StatusCode]; !ok {
+			s.Report.StatusRequests[res.StatusCode] = 0
+		}
+		// Increment the status code
+		s.Report.StatusRequests[res.StatusCode]++ // Increment Succeeded
 	}
 
 	// Increment Requests
