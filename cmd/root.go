@@ -9,7 +9,7 @@ import (
 
 var url, method string
 var concurrency, requests, timeout int
-var verbose bool
+var verifyTls, verbose bool
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -19,7 +19,7 @@ var rootCmd = &cobra.Command{
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	Run: func(cmd *cobra.Command, args []string) {
-		s := stress.NewStress(url, method, concurrency, requests, timeout, verbose)
+		s := stress.NewStress(url, method, concurrency, requests, timeout, verifyTls, verbose)
 		err := s.Run()
 		if err != nil {
 			panic(err)
@@ -53,5 +53,6 @@ func init() {
 	rootCmd.Flags().IntVarP(&concurrency, "concurrency", "c", 1, "The number of concurrent requests to make")
 	rootCmd.Flags().IntVarP(&requests, "requests", "r", 1, "The number of requests to make")
 	rootCmd.Flags().IntVarP(&timeout, "timeout", "t", 10, "The timeout in seconds")
+	rootCmd.Flags().BoolVar(&verifyTls, "verify", false, "Verify TLS")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 }

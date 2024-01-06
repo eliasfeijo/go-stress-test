@@ -1,6 +1,7 @@
 package stress
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"strings"
@@ -80,12 +81,14 @@ type Stress struct {
 	Verbose bool
 	// The report
 	Report *StressReport
+	// Verify TLS
+	VerifyTls bool
 	// Mutex
 	mu sync.Mutex
 }
 
 // NewStress creates a new stress test
-func NewStress(url string, method string, concurrency int, requests int, timeout int, verbose bool) *Stress {
+func NewStress(url string, method string, concurrency int, requests int, timeout int, verifyTls bool, verbose bool) *Stress {
 	report := NewStressReport()
 	return &Stress{
 		URL:         url,
@@ -95,6 +98,7 @@ func NewStress(url string, method string, concurrency int, requests int, timeout
 		Timeout:     timeout,
 		Verbose:     verbose,
 		Report:      report,
+		VerifyTls:   verifyTls,
 		mu:          sync.Mutex{},
 	}
 }
@@ -174,9 +178,15 @@ func (s *Stress) run() {
 func (s *Stress) runRequest(concurrencyGroup int) {
 	start := time.Now()
 
+	// Create a new HTTP transport
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: !s.VerifyTls},
+	}
+
 	// Create a new HTTP client
 	client := &http.Client{
-		Timeout: time.Duration(s.Timeout) * time.Second,
+		Timeout:   time.Duration(s.Timeout) * time.Second,
+		Transport: tr,
 	}
 
 	// Make the request
